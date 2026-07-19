@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>لعبة البطاقات المشتركة</title>
+    <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+    <style>
+        :root {
+            --p1-color: #2563eb;
+            --p2-color: #dc2626;
+            --p1-bg-card: linear-gradient(135deg, #1e3a8a, #1e40af);
+            --p2-bg-card: linear-gradient(135deg, #7f1d1d, #991b1b);
+            --bg-color: #0b0f19;
+            --panel-bg: #111827;
+            --card-default: linear-gradient(135deg, #374151, #1f2937);
+            --border-color: #374151;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: #f3f4f6;
+            margin: 0;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            overflow-x: hidden;
+            user-select: none;
+            min-height: 100vh;
+        }
+
+        #orientation-msg {
+            background: linear-gradient(90deg, #f59e0b, #d97706);
+            color: #000;
+            padding: 8px 15px;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-align: center;
+            width: 100%;
+            max-width: 800px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        h2 { 
+            margin: 10px 0; 
+            font-size: 1.8rem; 
+            font-weight: 700; 
+            color: #f3f4f6; 
+            text-align: center;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+
+        #setup-zone {
+            background: var(--panel-bg);
+            padding: 20px;
+            border-radius: 12px;
+            width: 100%;
+            max-width: 800px;
+            border: 1px solid var(--border-color);
+            text-align: center;
+            margin-bottom: 15px;
+        }
+
+        #setup-zone h3 {
+            margin: 0 0 15px 0;
+            color: #fbbf24;
+        }
+
+        .network-btn {
+            padding: 10px 20px;
+            font-size: 0.95rem;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            border: none;
+            color: white;
+            transition: background 0.2s, transform 0.1s;
+        }
+
+        .network-btn:hover { transform: translateY(-2px); }
+        .network-btn:active { transform: scale(0.98); }
+
+        #room-input {
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            background: #0b0f19;
+            color: white;
+            text-align: center;
+            font-size: 1rem;
+            width: 140px;
+        }
+        
+        #status-bar {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 10px 0;
+            margin-bottom: 15px;
+            background: var(--panel-bg);
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        #turn-display {
+            font-size: 1.2rem;
+            font-weight: bold;
+            transition: color 0.3s ease;
+        }
+
+        .p1-text { color: #60a5fa; text-shadow: 0 0 10px rgba(96, 165, 250, 0.3); }
+        .p2-text { color: #f87171; text-shadow: 0 0 10px rgba(248, 113, 113, 0.3); }
+        .draft-text { color: #fbbf24; text-shadow: 0 0 10px rgba(251, 191, 36, 0.3); }
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(6, 1fr);
+            gap: 12px;
+            width: 100%;
+            max-width: 800px;
+            margin-bottom: 15px;
+        }
+
+        #draft-zone {
+            grid-template-columns: repeat(5, 1fr);
+            background: var(--panel-bg);
+            padding: 15px;
+            border-radius: 12px;
+            max-height: 320px;
+            overflow-y: auto;
+            border: 1px solid var(--border-color);
+            box-shadow: inset 0 4px 12px rgba(0,0,0,0.5);
+        }
+
+        .board-slot {
+            aspect-ratio: 2/3;
+            background: rgba(17, 24, 39, 0.6);
+            border: 2px dashed #4b5563;
+            border-radius: 10px;
+            position: relative;
+            cursor: pointer;
+            padding: 4px;
+            transition: transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+        }
+
+        .board-slot:hover { transform: translateY(-2px); }
+        .board-slot.controlled-p1 { border-color: #3b82f6; background: rgba(37, 99, 235, 0.15); box-shadow: 0 0 8px rgba(37, 99, 235, 0.2); }
+        .board-slot.controlled-p2 { border-color: #ef4444; background: rgba(239, 68, 68, 0.15); box-shadow: 0 0 8px rgba(239, 68, 68, 0.2); }
+        
+        @keyframes blackFlashAnimation {
+            0%, 100% { background-color: rgba(17, 24, 39, 0.6); border-color: #4b5563; }
+            25%, 75% { background-color: #000000 !important; border-color: #ffffff !important; box-shadow: 0 0 15px rgba(255,255,255,0.4); }
+            50% { background-color: rgba(17, 24, 39, 0.6); border-color: #4b5563; }
+        }
+
+        .board-slot.error-full { animation: blackFlashAnimation 0.4s ease-in-out 2; }
+
+        .stack-count {
+            position: absolute;
+            bottom: -24px;
+            left: 0;
+            right: 0;
+            text-align: center;
+            font-size: 0.75rem;
+            color: #9ca3af;
+            font-weight: 600;
+        }
+
+        .controlled-p1 .stack-count { color: #60a5fa; }
+        .controlled-p2 .stack-count { color: #f87171; }
+
+        .card {
+            width: 100%;
+            height: 100%;
+            background: var(--card-default);
+            color: white;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 6px 5px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.4), inset 0 1px 1px rgba(255,255,255,0.1);
+            position: relative;
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: transform 0.2s ease, box-shadow 0.2s ease, opacity 0.3s ease;
+        }
+
+        @keyframes cardPopIn {
+            0% { transform: scale(0.7); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+
+        .board-slot .card { animation: cardPopIn 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.2) forwards; }
+
+        .card.card-p1-owned { background: var(--p1-bg-card); border-color: #3b82f6; }
+        .card.card-p2-owned { background: var(--p2-bg-card); border-color: #ef4444; }
+
+        .num-box {
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 4px;
+            padding: 1px 4px;
+            font-size: 0.7rem;
+            display: inline-flex;
+            align-items: center;
+            font-weight: bold;
+            color: #e5e7eb;
+        }
+
+        .outline-num { font-weight: 800; margin-right: 1px; }
+
+        .card-row-top { display: flex; justify-content: space-between; width: 100%; }
+        .card-row-mid { text-align: center; font-size: 0.85rem; font-weight: 600; color: #f3f4f6; margin: 4px 0; word-break: break-all; line-height: 1.2; }
+        .card-row-bot { display: flex; justify-content: center; width: 100%; }
+
+        #hand-zone {
+            width: 100%;
+            max-width: 800px;
+            background: var(--panel-bg);
+            border-radius: 12px;
+            padding: 15px;
+            margin-top: 25px;
+            min-height: 160px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+        }
+
+        .section-title {
+            font-size: 1rem;
+            color: #9ca3af;
+            margin-bottom: 12px;
+            text-align: center;
+            font-weight: 600;
+        }
+
+        .hand-container {
+            display: flex;
+            gap: 10px;
+            overflow-x: auto;
+            padding: 5px 5px 15px 5px;
+            justify-content: center;
+        }
+
+        .hand-container .card {
+            width: 80px;
+            aspect-ratio: 2/3;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+
+        @keyframes selectedPulse {
+            0% { transform: translateY(-12px) scale(1); box-shadow: 0 0 12px #fbbf24; }
+            50% { transform: translateY(-15px) scale(1.02); box-shadow: 0 0 18px #fbbf24; }
+            100% { transform: translateY(-12px) scale(1); box-shadow: 0 0 12px #fbbf24; }
+        }
+
+        .hand-container .card.selected {
+            border: 2px solid #fbbf24;
+            animation: selectedPulse 1.5s infinite ease-in-out;
+            z-index: 10;
+        }
+
+        #draft-zone .card { cursor: pointer; }
+        #draft-zone .card:hover { transform: translateY(-3px); box-shadow: 0 6px 12px rgba(0,0,0,0.5); }
+
+        .hidden { display: none !important; }
+        
+        .modal {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 100;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-content {
+            background: var(--panel-bg);
+            padding: 30px;
+            border-radius: 12px;
+            text-align: center;
+            border: 2px solid var(--border-color);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+            max-width: 90%;
+            width: 340px;
+        }
+
+        .modal-content h2 { font-size: 1.4rem; margin: 0 0 10px 0; }
+
+        button {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            font-size: 1rem;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-top: 20px;
+            transition: transform 0.1s, filter 0.2s;
+            width: 100%;
+        }
+
+        button:active { transform: scale(0.98); }
+
+        .divider { margin: 10px 0; color: #4b5563; text-align: center; }
+        .buttons-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; align-items: center; }
+    </style>
+</head>
+<body>
+    <div id="orientation-msg">قم بتدوير الهاتف للوضع الأفقي من أجل راحتك وراحتي</div>
+    <h2 id="main-title">لعبة البطاقات المشتركة</h2>
+
+    <div id="setup-zone">
+        <h3>نمط اللعب الاختياري</h3>
+        <button class="network-btn" onclick="startLocalGame()" style="background: #3b82f6; margin-bottom: 10px; width: 100%;">لعب محلي (نفس الجهاز)</button>
+        <div class="divider">— أو لعب عن بعد —</div>
+        <div class="buttons-row">
+            <button class="network-btn" onclick="initHost()" style="background: #10b981;">إنشاء غرفة (لاعب 1)</button>
+            <div style="display: flex; gap: 5px;">
+                <input type="text" id="room-input" placeholder="رمز الغرفة">
+                <button class="network-btn" onclick="initJoin()" style="background: #dc2626;">انضمام</button>
+            </div>
+        </div>
+        <p id="network-status" style="margin: 12px 0 0 0; font-size: 0.9rem; color: #9ca3af; font-weight: 600;"></p>
+    </div>
+
+    <div id="status-bar" class="hidden">
+        <div id="turn-display" class="draft-text">مرحلة الاختيار: دور اللاعب 1</div>
+    </div>
+
+    <div id="draft-zone" class="grid-container hidden"></div>
+
+    <div id="game-board" class="grid-container hidden" style="margin-bottom: 30px;">
+        <div class="board-slot" data-index="0"><span class="stack-count">(كدسة: 0/3)</span></div>
+        <div class="board-slot" data-index="1"><span class="stack-count">(كدسة: 0/3)</span></div>
+        <div class="board-slot" data-index="2"><span class="stack-count">(كدسة: 0/3)</span></div>
+        <div class="board-slot" data-index="3"><span class="stack-count">(كدسة: 0/3)</span></div>
+        <div class="board-slot" data-index="4"><span class="stack-count">(كدسة: 0/3)</span></div>
+        <div class="board-slot" data-index="5"><span class="stack-count">(كدسة: 0/3)</span></div>
+    </div>
+
+    <div id="hand-zone" class="hidden">
+        <div class="section-title">بطاقاتك المتاحة:</div>
+        <div id="hand-container" class="hand-container"></div>
+    </div>
+
+    <div id="end-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2 id="winner-text"></h2>
+            <button onclick="resetGame()">لعب مباراة جديدة</button>
+        </div>
+    </div>
+
+    <script>
+        // Card names
+        const cardNames = ["أسد", "صخرة", "شجرة", "برق", "سيف", "جبل", "ذئب", "نجم", "باب", "وردة", "صقر", "نهر", "كتاب", "قلم", "ثعلب", "بحر", "رعد", "درع", "غزال", "نخلة"];
+
+        // Initialize card database
+        const cardDatabase = [];
+        for (let i = 0; i < 20; i++) {
+            let c = 5, l = 5, r = 5;
+            const type = i % 4;
+            if (type === 0) { l = 7; r = 3; c = 4; }
+            else if (type === 1) { l = 3; r = 7; c = 4; }
+            else if (type === 2) { l = 5; r = 5; c = 7; }
+            else { l = 6; r = 6; c = 3; }
+            cardDatabase.push({ id: i + 1, name: cardNames[i], c, l, r });
+        }
+
+        // Game state
+        let state = {
+            phase: 'DRAFT',
+            currentPlayer: 1,
+            p1Hand: [],
+            p2Hand: [],
+            board: [[], [], [], [], [], []],
+            selectedCardIndex: null
+        };
+
+        // Network variables
+        let peer = null, conn = null, isMultiplayer = false, myRole = null, isConnectionReady = false;
+
+        // DOM elements
+        const draftZone = document.getElementById('draft-zone');
+        const gameBoard = document.getElementById('game-board');
+        const handZone = document.getElementById('hand-zone');
+        const handContainer = document.getElementById('hand-container');
+        const turnDisplay = document.getElementById('turn-display');
+        const endModal = document.getElementById('end-modal');
+        const winnerText = document.getElementById('winner-text');
+        const statusOverlay = document.getElementById('network-status');
+
+        function startLocalGame() {
+            isMultiplayer = false;
+            document.getElementById('setup-zone').classList.add('hidden');
+            document.getElementById('status-bar').classList.remove('hidden');
+            draftZone.classList.remove('hidden');
+            renderDraftPool();
+            updateTurnDisplay();
+        }
+
+        function initHost() {
+            statusOverlay.textContent = "جاري حجز غرفة على الخادم السحابي...";
+            peer = new Peer({ config: { iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:global.stun.twilio.com:3478'] }] } });
+            peer.on('open', (id) => {
+                statusOverlay.innerHTML = `تم إنشاء الغرفة! شارك هذا الرمز مع خصمك:<br><strong style="color:#fbbf24; font-size:1.3rem;">${id}</strong><br>بانتظار دخول اللاعب الآخر...`;
+                myRole = 1;
+            });
+            peer.on('connection', (connection) => { conn = connection; isConnectionReady = false; setupNetworkEvents(); });
+            peer.on('error', (err) => { console.error('Peer error:', err); statusOverlay.textContent = `خطأ في الاتصال: ${err.type}. أعد المحاولة.`; });
+        }
+
+        function initJoin() {
+            const targetId = document.getElementById('room-input').value.trim().toUpperCase();
+            if (!targetId) { statusOverlay.textContent = "من فضلك أدخل رمز الغرفة أولاً!"; return; }
+            statusOverlay.textContent = "جاري الاتصال بالطرف الآخر...";
+            peer = new Peer({ config: { iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:global.stun.twilio.com:3478'] }] } });
+            peer.on('open', () => { conn = peer.connect(targetId); myRole = 2; isConnectionReady = false; setupNetworkEvents(); });
+            peer.on('error', (err) => { console.error('Peer error:', err); statusOverlay.textContent = `عذراً، تعذر الاتصال: ${err.type}`; });
+        }
+
+        function setupNetworkEvents() {
+            function onConnectSuccess() {
+                isConnectionReady = true;
+                statusOverlay.textContent = "تم الاتصال بنجاح! جاري تحميل الساحة...";
+                isMultiplayer = true;
+                setTimeout(() => {
+                    document.getElementById('setup-zone').classList.add('hidden');
+                    document.getElementById('status-bar').classList.remove('hidden');
+                    draftZone.classList.remove('hidden');
+                    renderDraftPool();
+                    updateTurnDisplay();
+                }, 1000);
+            }
+            if (conn.open) { onConnectSuccess(); } else { conn.on('open', onConnectSuccess); }
+            conn.on('data', (data) => {
+                if (data.type === 'DRAFT') handleDraft(data.index, draftZone.children[data.index], true);
+                else if (data.type === 'PLAY') handleSlotClick(data.slotIndex, true, data.handIndex);
+                else if (data.type === 'RESET') resetGame(true);
+            });
+            conn.on('close', () => { alert("انقطع اتصال اللاعب الآخر! سيتم إعادة تحميل الصفحة."); window.location.reload(); });
+            conn.on('error', (err) => { console.error('Connection error:', err); statusOverlay.textContent = "حدث خطأ في الاتصال بالطرف الآخر."; });
+        }
+
+        function updateTurnDisplay() {
+            let hint = "";
+            if (isMultiplayer) hint = (state.currentPlayer === myRole) ? " (دورك أنت)" : " (دور خصمك)";
+            if (state.phase === 'DRAFT') {
+                if (state.currentPlayer === 1) { turnDisplay.textContent = "مرحلة الاختيار: دور اللاعب 1 (الأزرق)" + hint; turnDisplay.className = "p1-text"; }
+                else { turnDisplay.textContent = "مرحلة الاختيار: دور اللاعب 2 (الأحمر)" + hint; turnDisplay.className = "p2-text"; }
+            } else {
+                if (state.currentPlayer === 1) { turnDisplay.textContent = "دور: اللاعب 1 (الأزرق)" + hint; turnDisplay.className = "p1-text"; }
+                else { turnDisplay.textContent = "دور: اللاعب 2 (الأحمر)" + hint; turnDisplay.className = "p2-text"; }
+            }
+        }
+
+        function createCardHTML(card, owner = null) {
+            const div = document.createElement('div');
+            div.className = 'card';
+            if (owner === 1) div.classList.add('card-p1-owned');
+            if (owner === 2) div.classList.add('card-p2-owned');
+            div.innerHTML = `
+                <div class="card-row-top">
+                    <div class="num-box">L:<span class="outline-num">${card.l}</span></div>
+                    <div class="num-box">R:<span class="outline-num">${card.r}</span></div>
+                </div>
+                <div class="card-row-mid">${card.name}</div>
+                <div class="card-row-bot">
+                    <div class="num-box">C:<span class="outline-num">${card.c}</span></div>
+                </div>
+            `;
+            return div;
+        }
+
+        function renderDraftPool() {
+            draftZone.innerHTML = '';
+            cardDatabase.forEach((card, index) => {
+                const cardEl = createCardHTML(card);
+                cardEl.onclick = () => handleDraft(index, cardEl, false);
+                draftZone.appendChild(cardEl);
+            });
+        }
+
+        function handleDraft(index, cardEl, isRemoteAction = false) {
+            if (state.phase !== 'DRAFT' || cardEl.style.opacity === '0.2') return;
+            if (isMultiplayer && !isRemoteAction && state.currentPlayer !== myRole) return;
+            const card = cardDatabase[index];
+            if (state.currentPlayer === 1) { state.p1Hand.push(card); cardEl.style.opacity = '0.2'; cardEl.classList.add('card-p1-owned'); state.currentPlayer = 2; }
+            else { state.p2Hand.push(card); cardEl.style.opacity = '0.2'; cardEl.classList.add('card-p2-owned'); state.currentPlayer = 1; }
+            updateTurnDisplay();
+            if (isMultiplayer && !isRemoteAction && isConnectionReady && conn && conn.open) conn.send({ type: 'DRAFT', index: index });
+            if (state.p1Hand.length === 9 && state.p2Hand.length === 9) setTimeout(startPlayPhase, 600);
+        }
+
+        function startPlayPhase() {
+            state.phase = 'PLAY';
+            state.currentPlayer = 1;
+            draftZone.classList.add('hidden');
+            gameBoard.classList.remove('hidden');
+            handZone.classList.remove('hidden');
+            document.getElementById('main-title').textContent = "لعبة البطاقات المشتركة (6 خانات)";
+            renderBoard();
+            renderHand();
+        }
+
+        function renderHand() {
+            handContainer.innerHTML = '';
+            const currentHand = isMultiplayer ? (myRole === 1 ? state.p1Hand : state.p2Hand) : (state.currentPlayer === 1 ? state.p1Hand : state.p2Hand);
+            const titleEl = document.querySelector('#hand-zone .section-title');
+            titleEl.textContent = isMultiplayer ? `أوراقك الخاصة (أنت لاعب ${myRole}):` : "بطاقاتك المتاحة:";
+            currentHand.forEach((card, idx) => {
+                const cardEl = createCardHTML(card, isMultiplayer ? myRole : state.currentPlayer);
+                if (state.selectedCardIndex === idx) cardEl.classList.add('selected');
+                cardEl.onclick = () => { if (isMultiplayer && state.currentPlayer !== myRole) return; state.selectedCardIndex = idx; renderHand(); };
+                handContainer.appendChild(cardEl);
+            });
+            updateTurnDisplay();
+        }
+
+        function handleSlotClick(index, isRemoteAction = false, remoteCardIndex = null) {
+            if (state.phase !== 'PLAY') return;
+            if (isMultiplayer && !isRemoteAction && state.currentPlayer !== myRole) return;
+            if (!isRemoteAction && state.selectedCardIndex === null) return;
+            const slot = document.querySelector(`.board-slot[data-index="${index}"]`);
+            const stack = state.board[index];
+            if (stack.length >= 3) { slot.classList.remove('error-full'); void slot.offsetWidth; slot.classList.add('error-full'); setTimeout(() => slot.classList.remove('error-full'), 800); return; }
+            const hand = state.currentPlayer === 1 ? state.p1Hand : state.p2Hand;
+            const targetIndex = isRemoteAction ? remoteCardIndex : state.selectedCardIndex;
+            const placedCard = hand.splice(targetIndex, 1)[0];
+            placedCard.owner = state.currentPlayer;
+            stack.push(placedCard);
+            if (index > 0 && state.board[index - 1].length > 0) {
+                const leftTarget = state.board[index - 1][state.board[index - 1].length - 1];
+                if (placedCard.l >= leftTarget.r) state.board[index - 1].forEach(c => c.owner = placedCard.owner);
+            }
+            if (index < 5 && state.board[index + 1].length > 0) {
+                const rightTarget = state.board[index + 1][state.board[index + 1].length - 1];
+                if (placedCard.r >= rightTarget.l) state.board[index + 1].forEach(c => c.owner = placedCard.owner);
+            }
+            if (isMultiplayer && !isRemoteAction && isConnectionReady && conn && conn.open) conn.send({ type: 'PLAY', slotIndex: index, handIndex: state.selectedCardIndex });
+            state.selectedCardIndex = null;
+            renderBoard();
+            if (state.p1Hand.length === 0 && state.p2Hand.length === 0) { endGame(); return; }
+            state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
+            renderHand();
+        }
+
+        function renderBoard() {
+            state.board.forEach((stack, index) => {
+                const slot = document.querySelector(`.board-slot[data-index="${index}"]`);
+                const countEl = slot.querySelector('.stack-count');
+                countEl.textContent = `(كدسة: ${stack.length}/3)`;
+                const oldCard = slot.querySelector('.card');
+                if (oldCard) oldCard.remove();
+                slot.classList.remove('controlled-p1', 'controlled-p2');
+                if (stack.length > 0) {
+                    const topCard = stack[stack.length - 1];
+                    const cardDOM = createCardHTML(topCard, topCard.owner);
+                    slot.appendChild(cardDOM);
+                    slot.classList.add(topCard.owner === 1 ? 'controlled-p1' : 'controlled-p2');
+                }
+            });
+        }
+
+        function endGame() {
+            let p1Score = 0, p2Score = 0;
+            state.board.forEach(stack => { if (stack.length > 0) { if (stack[stack.length - 1].owner === 1) p1Score++; else p2Score++; } });
+            let msg = "";
+            if (p1Score > p2Score) msg = `🎉 الفائز هو اللاعب 1 (الأزرق) بـ ${p1Score} خانات!`;
+            else if (p2Score > p1Score) msg = `🎉 الفائز هو اللاعب 2 (الأحمر) بـ ${p2Score} خانات!`;
+            else msg = "🤝 انتهت المباراة بالتعادل العادل (3 ضد 3)!";
+            winnerText.textContent = msg;
+            endModal.classList.remove('hidden');
+        }
+
+        function resetGame(isRemoteAction = false) {
+            state = { phase: 'DRAFT', currentPlayer: 1, p1Hand: [], p2Hand: [], board: [[], [], [], [], [], []], selectedCardIndex: null };
+            endModal.classList.add('hidden');
+            gameBoard.classList.add('hidden');
+            handZone.classList.add('hidden');
+            if (isMultiplayer) {
+                if (!isRemoteAction && isConnectionReady && conn && conn.open) conn.send({ type: 'RESET' });
+                draftZone.classList.remove('hidden');
+                document.getElementById('main-title').textContent = "لعبة البطاقات المشتركة";
+                renderBoard();
+                renderDraftPool();
+                updateTurnDisplay();
+            } else {
+                document.getElementById('setup-zone').classList.remove('hidden');
+                document.getElementById('status-bar').classList.add('hidden');
+                draftZone.classList.add('hidden');
+                document.getElementById('main-title').textContent = "لعبة البطاقات المشتركة";
+                renderBoard();
+            }
+        }
+
+        document.querySelectorAll('.board-slot').forEach((slot, idx) => {
+            slot.onclick = () => handleSlotClick(idx, false, null);
+        });
+    </script>
+</body>
+</html>
