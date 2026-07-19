@@ -94,9 +94,25 @@
             color: white;
             text-align: center;
             font-size: 1rem;
-            width: 140px;
+            width: 200px;
         }
-        
+
+        .copy-btn {
+            padding: 10px 15px;
+            background: #8b5cf6;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            font-weight: bold;
+            transition: background 0.2s;
+            margin-left: 5px;
+        }
+
+        .copy-btn:hover { background: #7c3aed; }
+        .copy-btn:active { transform: scale(0.98); }
+
         #status-bar {
             width: 100%;
             max-width: 800px;
@@ -314,7 +330,42 @@
         button:active { transform: scale(0.98); }
 
         .divider { margin: 10px 0; color: #4b5563; text-align: center; }
-        .buttons-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; align-items: center; }
+        .buttons-row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; align-items: center; flex-direction: column; }
+        .room-row { display: flex; gap: 5px; justify-content: center; align-items: center; flex-wrap: wrap; }
+
+        #network-status {
+            margin: 12px 0 0 0;
+            font-size: 0.9rem;
+            color: #9ca3af;
+            font-weight: 600;
+            word-break: break-all;
+        }
+
+        .success-msg { color: #10b981 !important; }
+        .error-msg { color: #dc2626 !important; }
+        .info-msg { color: #60a5fa !important; }
+
+        #host-info {
+            background: rgba(16, 185, 129, 0.1) !important;
+            padding: 15px !important;
+            border-radius: 8px !important;
+            border: 1px solid #10b981 !important;
+            margin-top: 10px !important;
+            width: 100% !important;
+        }
+
+        .room-code-display {
+            background: #0b0f19;
+            padding: 10px 15px;
+            border-radius: 6px;
+            border: 1px solid #10b981;
+            color: #fbbf24;
+            font-weight: bold;
+            font-size: 1.1rem;
+            letter-spacing: 2px;
+            user-select: all;
+            word-break: break-all;
+        }
     </style>
 </head>
 <body>
@@ -326,13 +377,25 @@
         <button class="network-btn" onclick="startLocalGame()" style="background: #3b82f6; margin-bottom: 10px; width: 100%;">لعب محلي (نفس الجهاز)</button>
         <div class="divider">— أو لعب عن بعد —</div>
         <div class="buttons-row">
-            <button class="network-btn" onclick="initHost()" style="background: #10b981;">إنشاء غرفة (لاعب 1)</button>
-            <div style="display: flex; gap: 5px;">
-                <input type="text" id="room-input" placeholder="رمز الغرفة">
-                <button class="network-btn" onclick="initJoin()" style="background: #dc2626;">انضمام</button>
+            <button class="network-btn" onclick="initHost()" style="background: #10b981; width: 100%;">إنشاء غرفة (لاعب 1)</button>
+            <div id="host-info" class="hidden">
+                <div style="font-size: 0.9rem; margin-bottom: 10px; color: #60a5fa;">رمز الغرفة الخاص بك:</div>
+                <div style="display: flex; gap: 10px; align-items: center; justify-content: center; flex-wrap: wrap;">
+                    <div id="room-code" class="room-code-display"></div>
+                    <button class="copy-btn" onclick="copyRoomCode()">📋 نسخ</button>
+                </div>
+                <div style="font-size: 0.85rem; color: #9ca3af; margin-top: 10px;">بانتظار دخول اللاعب الآخر...</div>
+            </div>
+            <div style="width: 100%; border-top: 1px solid var(--border-color); margin: 15px 0;"></div>
+            <div style="width: 100%;">
+                <div style="font-size: 0.9rem; color: #60a5fa; margin-bottom: 10px;">أو انضم إلى غرفة موجودة:</div>
+                <div class="room-row" style="width: 100%; justify-content: center;">
+                    <input type="text" id="room-input" placeholder="الصق رمز الغرفة هنا">
+                    <button class="network-btn" onclick="initJoin()" style="background: #dc2626;">انضمام</button>
+                </div>
             </div>
         </div>
-        <p id="network-status" style="margin: 12px 0 0 0; font-size: 0.9rem; color: #9ca3af; font-weight: 600;"></p>
+        <p id="network-status"></p>
     </div>
 
     <div id="status-bar" class="hidden">
@@ -363,10 +426,8 @@
     </div>
 
     <script>
-        // Card names
         const cardNames = ["أسد", "صخرة", "شجرة", "برق", "سيف", "جبل", "ذئب", "نجم", "باب", "وردة", "صقر", "نهر", "كتاب", "قلم", "ثعلب", "بحر", "رعد", "درع", "غزال", "نخلة"];
 
-        // Initialize card database
         const cardDatabase = [];
         for (let i = 0; i < 20; i++) {
             let c = 5, l = 5, r = 5;
@@ -378,7 +439,6 @@
             cardDatabase.push({ id: i + 1, name: cardNames[i], c, l, r });
         }
 
-        // Game state
         let state = {
             phase: 'DRAFT',
             currentPlayer: 1,
@@ -388,10 +448,9 @@
             selectedCardIndex: null
         };
 
-        // Network variables
         let peer = null, conn = null, isMultiplayer = false, myRole = null, isConnectionReady = false;
+        let myPeerId = null;
 
-        // DOM elements
         const draftZone = document.getElementById('draft-zone');
         const gameBoard = document.getElementById('game-board');
         const handZone = document.getElementById('hand-zone');
@@ -400,6 +459,25 @@
         const endModal = document.getElementById('end-modal');
         const winnerText = document.getElementById('winner-text');
         const statusOverlay = document.getElementById('network-status');
+
+        function logStatus(msg, type = 'info') {
+            console.log('[GAME]', msg);
+            if (type === 'info') statusOverlay.className = 'info-msg';
+            else if (type === 'success') statusOverlay.className = 'success-msg';
+            else if (type === 'error') statusOverlay.className = 'error-msg';
+            statusOverlay.textContent = msg;
+        }
+
+        function copyRoomCode() {
+            const roomCode = document.getElementById('room-code').textContent;
+            if (!roomCode) return;
+            navigator.clipboard.writeText(roomCode).then(() => {
+                alert('✅ تم نسخ الرمز!');
+            }).catch(err => {
+                console.error('Copy failed:', err);
+                alert('فشل النسخ. جرب يدويًا!');
+            });
+        }
 
         function startLocalGame() {
             isMultiplayer = false;
@@ -411,57 +489,135 @@
         }
 
         function initHost() {
-            statusOverlay.textContent = "جاري حجز غرفة على الخادم السحابي...";
-            peer = new Peer({ config: { iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:global.stun.twilio.com:3478'] }] } });
+            logStatus('جاري إنشاء الغرفة...', 'info');
+            document.getElementById('host-info').classList.add('hidden');
+            
+            peer = new Peer({
+                config: {
+                    iceServers: [
+                        { urls: ['stun:stun.l.google.com:19302'] },
+                        { urls: ['stun:global.stun.twilio.com:3478'] }
+                    ]
+                }
+            });
+            
             peer.on('open', (id) => {
-                statusOverlay.innerHTML = `تم إنشاء الغرفة! شارك هذا الرمز مع خصمك:<br><strong style="color:#fbbf24; font-size:1.3rem;">${id}</strong><br>بانتظار دخول اللاعب الآخر...`;
+                myPeerId = id;
+                console.log('[PEER] Host ID:', id);
+                document.getElementById('room-code').textContent = id;
+                document.getElementById('host-info').classList.remove('hidden');
+                logStatus('✅ تم إنشاء الغرفة! شارك الرمز مع خصمك.', 'success');
                 myRole = 1;
             });
-            peer.on('connection', (connection) => { conn = connection; isConnectionReady = false; setupNetworkEvents(); });
-            peer.on('error', (err) => { console.error('Peer error:', err); statusOverlay.textContent = `خطأ في الاتصال: ${err.type}. أعد المحاولة.`; });
+            
+            peer.on('connection', (connection) => {
+                console.log('[PEER] New connection from:', connection.peer);
+                conn = connection;
+                isConnectionReady = false;
+                setupNetworkEvents();
+            });
+            
+            peer.on('error', (err) => {
+                console.error('[PEER ERROR]', err.type, err.message);
+                logStatus(`❌ خطأ: ${err.type}`, 'error');
+            });
         }
 
         function initJoin() {
-            const targetId = document.getElementById('room-input').value.trim().toUpperCase();
-            if (!targetId) { statusOverlay.textContent = "من فضلك أدخل رمز الغرفة أولاً!"; return; }
-            statusOverlay.textContent = "جاري الاتصال بالطرف الآخر...";
-            peer = new Peer({ config: { iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:global.stun.twilio.com:3478'] }] } });
-            peer.on('open', () => { conn = peer.connect(targetId); myRole = 2; isConnectionReady = false; setupNetworkEvents(); });
-            peer.on('error', (err) => { console.error('Peer error:', err); statusOverlay.textContent = `عذراً، تعذر الاتصال: ${err.type}`; });
+            const targetId = document.getElementById('room-input').value.trim();
+            if (!targetId) {
+                logStatus('❌ أدخل رمز الغرفة أولاً!', 'error');
+                return;
+            }
+            
+            logStatus('جاري الاتصال...', 'info');
+            
+            peer = new Peer({
+                config: {
+                    iceServers: [
+                        { urls: ['stun:stun.l.google.com:19302'] },
+                        { urls: ['stun:global.stun.twilio.com:3478'] }
+                    ]
+                }
+            });
+            
+            peer.on('open', (id) => {
+                myPeerId = id;
+                console.log('[PEER] My ID:', id, '-> Connecting to:', targetId);
+                conn = peer.connect(targetId, { reliable: true });
+                myRole = 2;
+                isConnectionReady = false;
+                setupNetworkEvents();
+            });
+            
+            peer.on('error', (err) => {
+                console.error('[PEER ERROR]', err.type, err.message);
+                logStatus(`❌ خطأ في الاتصال: ${err.type}`, 'error');
+            });
         }
 
         function setupNetworkEvents() {
+            if (!conn) {
+                console.error('[ERROR] Connection is null');
+                logStatus('❌ خطأ في الاتصال', 'error');
+                return;
+            }
+
             function onConnectSuccess() {
                 isConnectionReady = true;
-                statusOverlay.textContent = "تم الاتصال بنجاح! جاري تحميل الساحة...";
+                console.log('[NETWORK] Connected! 🎮');
+                logStatus('✅ تم الاتصال بنجاح! بدء اللعبة...', 'success');
                 isMultiplayer = true;
+                
                 setTimeout(() => {
                     document.getElementById('setup-zone').classList.add('hidden');
                     document.getElementById('status-bar').classList.remove('hidden');
                     draftZone.classList.remove('hidden');
                     renderDraftPool();
                     updateTurnDisplay();
-                }, 1000);
+                }, 500);
             }
-            if (conn.open) { onConnectSuccess(); } else { conn.on('open', onConnectSuccess); }
+
+            if (conn.open) {
+                console.log('[NETWORK] Connection already open');
+                onConnectSuccess();
+            } else {
+                console.log('[NETWORK] Waiting for connection...');
+                conn.on('open', onConnectSuccess);
+            }
+
             conn.on('data', (data) => {
-                if (data.type === 'DRAFT') handleDraft(data.index, draftZone.children[data.index], true);
-                else if (data.type === 'PLAY') handleSlotClick(data.slotIndex, true, data.handIndex);
-                else if (data.type === 'RESET') resetGame(true);
+                console.log('[NETWORK] Data received:', data);
+                if (data.type === 'DRAFT') {
+                    handleDraft(data.index, draftZone.children[data.index], true);
+                } else if (data.type === 'PLAY') {
+                    handleSlotClick(data.slotIndex, true, data.handIndex);
+                } else if (data.type === 'RESET') {
+                    resetGame(true);
+                }
             });
-            conn.on('close', () => { alert("انقطع اتصال اللاعب الآخر! سيتم إعادة تحميل الصفحة."); window.location.reload(); });
-            conn.on('error', (err) => { console.error('Connection error:', err); statusOverlay.textContent = "حدث خطأ في الاتصال بالطرف الآخر."; });
+
+            conn.on('close', () => {
+                console.log('[NETWORK] Connection closed');
+                alert('انقطع الاتصال 😢');
+                window.location.reload();
+            });
+
+            conn.on('error', (err) => {
+                console.error('[NETWORK ERROR]', err);
+                logStatus(`❌ خطأ: ${err.message || 'خطأ في الاتصال'}`, 'error');
+            });
         }
 
         function updateTurnDisplay() {
             let hint = "";
-            if (isMultiplayer) hint = (state.currentPlayer === myRole) ? " (دورك أنت)" : " (دور خصمك)";
+            if (isMultiplayer) hint = (state.currentPlayer === myRole) ? " (دورك أنت 🎯)" : " (دور الخصم ⏳)";
             if (state.phase === 'DRAFT') {
-                if (state.currentPlayer === 1) { turnDisplay.textContent = "مرحلة الاختيار: دور اللاعب 1 (الأزرق)" + hint; turnDisplay.className = "p1-text"; }
-                else { turnDisplay.textContent = "مرحلة الاختيار: دور اللاعب 2 (الأحمر)" + hint; turnDisplay.className = "p2-text"; }
+                if (state.currentPlayer === 1) { turnDisplay.textContent = "🎯 الاختيار: اللاعب 1" + hint; turnDisplay.className = "p1-text"; }
+                else { turnDisplay.textContent = "🎯 الاختيار: اللاعب 2" + hint; turnDisplay.className = "p2-text"; }
             } else {
-                if (state.currentPlayer === 1) { turnDisplay.textContent = "دور: اللاعب 1 (الأزرق)" + hint; turnDisplay.className = "p1-text"; }
-                else { turnDisplay.textContent = "دور: اللاعب 2 (الأحمر)" + hint; turnDisplay.className = "p2-text"; }
+                if (state.currentPlayer === 1) { turnDisplay.textContent = "🎮 دور: اللاعب 1" + hint; turnDisplay.className = "p1-text"; }
+                else { turnDisplay.textContent = "🎮 دور: اللاعب 2" + hint; turnDisplay.className = "p2-text"; }
             }
         }
 
@@ -495,12 +651,22 @@
         function handleDraft(index, cardEl, isRemoteAction = false) {
             if (state.phase !== 'DRAFT' || cardEl.style.opacity === '0.2') return;
             if (isMultiplayer && !isRemoteAction && state.currentPlayer !== myRole) return;
+            
             const card = cardDatabase[index];
             if (state.currentPlayer === 1) { state.p1Hand.push(card); cardEl.style.opacity = '0.2'; cardEl.classList.add('card-p1-owned'); state.currentPlayer = 2; }
             else { state.p2Hand.push(card); cardEl.style.opacity = '0.2'; cardEl.classList.add('card-p2-owned'); state.currentPlayer = 1; }
+            
             updateTurnDisplay();
-            if (isMultiplayer && !isRemoteAction && isConnectionReady && conn && conn.open) conn.send({ type: 'DRAFT', index: index });
-            if (state.p1Hand.length === 9 && state.p2Hand.length === 9) setTimeout(startPlayPhase, 600);
+            
+            if (isMultiplayer && !isRemoteAction && isConnectionReady && conn && conn.open) {
+                const msg = { type: 'DRAFT', index: index };
+                console.log('[SEND]', msg);
+                conn.send(msg);
+            }
+            
+            if (state.p1Hand.length === 9 && state.p2Hand.length === 9) {
+                setTimeout(startPlayPhase, 600);
+            }
         }
 
         function startPlayPhase() {
@@ -509,7 +675,7 @@
             draftZone.classList.add('hidden');
             gameBoard.classList.remove('hidden');
             handZone.classList.remove('hidden');
-            document.getElementById('main-title').textContent = "لعبة البطاقات المشتركة (6 خانات)";
+            document.getElementById('main-title').textContent = "🎮 لعبة البطاقات - مرحلة اللعب";
             renderBoard();
             renderHand();
         }
@@ -518,7 +684,8 @@
             handContainer.innerHTML = '';
             const currentHand = isMultiplayer ? (myRole === 1 ? state.p1Hand : state.p2Hand) : (state.currentPlayer === 1 ? state.p1Hand : state.p2Hand);
             const titleEl = document.querySelector('#hand-zone .section-title');
-            titleEl.textContent = isMultiplayer ? `أوراقك الخاصة (أنت لاعب ${myRole}):` : "بطاقاتك المتاحة:";
+            titleEl.textContent = isMultiplayer ? `🎴 أوراقك (لاعب ${myRole})` : "🎴 بطاقاتك:";
+            
             currentHand.forEach((card, idx) => {
                 const cardEl = createCardHTML(card, isMultiplayer ? myRole : state.currentPlayer);
                 if (state.selectedCardIndex === idx) cardEl.classList.add('selected');
@@ -532,14 +699,19 @@
             if (state.phase !== 'PLAY') return;
             if (isMultiplayer && !isRemoteAction && state.currentPlayer !== myRole) return;
             if (!isRemoteAction && state.selectedCardIndex === null) return;
+            
             const slot = document.querySelector(`.board-slot[data-index="${index}"]`);
             const stack = state.board[index];
+            
             if (stack.length >= 3) { slot.classList.remove('error-full'); void slot.offsetWidth; slot.classList.add('error-full'); setTimeout(() => slot.classList.remove('error-full'), 800); return; }
+            
             const hand = state.currentPlayer === 1 ? state.p1Hand : state.p2Hand;
             const targetIndex = isRemoteAction ? remoteCardIndex : state.selectedCardIndex;
+            
             const placedCard = hand.splice(targetIndex, 1)[0];
             placedCard.owner = state.currentPlayer;
             stack.push(placedCard);
+            
             if (index > 0 && state.board[index - 1].length > 0) {
                 const leftTarget = state.board[index - 1][state.board[index - 1].length - 1];
                 if (placedCard.l >= leftTarget.r) state.board[index - 1].forEach(c => c.owner = placedCard.owner);
@@ -548,10 +720,18 @@
                 const rightTarget = state.board[index + 1][state.board[index + 1].length - 1];
                 if (placedCard.r >= rightTarget.l) state.board[index + 1].forEach(c => c.owner = placedCard.owner);
             }
-            if (isMultiplayer && !isRemoteAction && isConnectionReady && conn && conn.open) conn.send({ type: 'PLAY', slotIndex: index, handIndex: state.selectedCardIndex });
+            
+            if (isMultiplayer && !isRemoteAction && isConnectionReady && conn && conn.open) {
+                const msg = { type: 'PLAY', slotIndex: index, handIndex: state.selectedCardIndex };
+                console.log('[SEND]', msg);
+                conn.send(msg);
+            }
+            
             state.selectedCardIndex = null;
             renderBoard();
+            
             if (state.p1Hand.length === 0 && state.p2Hand.length === 0) { endGame(); return; }
+            
             state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
             renderHand();
         }
@@ -564,6 +744,7 @@
                 const oldCard = slot.querySelector('.card');
                 if (oldCard) oldCard.remove();
                 slot.classList.remove('controlled-p1', 'controlled-p2');
+                
                 if (stack.length > 0) {
                     const topCard = stack[stack.length - 1];
                     const cardDOM = createCardHTML(topCard, topCard.owner);
@@ -576,10 +757,12 @@
         function endGame() {
             let p1Score = 0, p2Score = 0;
             state.board.forEach(stack => { if (stack.length > 0) { if (stack[stack.length - 1].owner === 1) p1Score++; else p2Score++; } });
+            
             let msg = "";
-            if (p1Score > p2Score) msg = `🎉 الفائز هو اللاعب 1 (الأزرق) بـ ${p1Score} خانات!`;
-            else if (p2Score > p1Score) msg = `🎉 الفائز هو اللاعب 2 (الأحمر) بـ ${p2Score} خانات!`;
-            else msg = "🤝 انتهت المباراة بالتعادل العادل (3 ضد 3)!";
+            if (p1Score > p2Score) msg = `🎉 اللاعب 1 (الأزرق) فاز بـ ${p1Score} خانات!`;
+            else if (p2Score > p1Score) msg = `🎉 اللاعب 2 (الأحمر) فاز بـ ${p2Score} خانات!`;
+            else msg = "🤝 تعادل عادل! (3 ضد 3)";
+            
             winnerText.textContent = msg;
             endModal.classList.remove('hidden');
         }
@@ -589,10 +772,15 @@
             endModal.classList.add('hidden');
             gameBoard.classList.add('hidden');
             handZone.classList.add('hidden');
+            
             if (isMultiplayer) {
-                if (!isRemoteAction && isConnectionReady && conn && conn.open) conn.send({ type: 'RESET' });
+                if (!isRemoteAction && isConnectionReady && conn && conn.open) {
+                    const msg = { type: 'RESET' };
+                    console.log('[SEND]', msg);
+                    conn.send(msg);
+                }
                 draftZone.classList.remove('hidden');
-                document.getElementById('main-title').textContent = "لعبة البطاقات المشتركة";
+                document.getElementById('main-title').textContent = "🎮 لعبة البطاقات - جديدة";
                 renderBoard();
                 renderDraftPool();
                 updateTurnDisplay();
@@ -608,6 +796,8 @@
         document.querySelectorAll('.board-slot').forEach((slot, idx) => {
             slot.onclick = () => handleSlotClick(idx, false, null);
         });
+
+        console.log('🎮 Game loaded! Open console (F12) for debug info.');
     </script>
 </body>
 </html>
