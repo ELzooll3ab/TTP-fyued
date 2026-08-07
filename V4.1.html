@@ -1,0 +1,701 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>لعبة الاستيلاء على الخانة | Cell Capture Game</title>
+    
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+    <style>
+        :root {
+            --p1-color: #2563eb; 
+            --p2-color: #dc2626;
+            --p1-bg-card: linear-gradient(135deg, #1e3a8a, #1e40af);
+            --p2-bg-card: linear-gradient(135deg, #7f1d1d, #991b1b);
+            --bg-color: #0b0f19; 
+            --panel-bg: #111827;
+            --card-default: linear-gradient(135deg, #374151, #1f2937);
+            --border-color: #374151;
+        }
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color); color: #f3f4f6;
+            margin: 0; padding: 5px; display: flex; flex-direction: column;
+            align-items: center; overflow-x: hidden; user-select: none; min-height: 100vh;
+        }
+        #orientation-msg {
+            background: linear-gradient(90deg, #f59e0b, #d97706); color: #000;
+            padding: 8px 15px; border-radius: 6px; margin-bottom: 8px;
+            font-size: 0.85rem; font-weight: 600; text-align: center; width: 100%; max-width: 800px;
+        }
+        @media screen and (orientation: landscape) { #orientation-msg { display: none !important; } }
+        h2 { margin: 5px 0; font-size: 1.5rem; font-weight: 700; text-align: center; }
+        #setup-zone {
+            background: var(--panel-bg); padding: 15px; border-radius: 12px;
+            width: 100%; max-width: 800px; border: 1px solid var(--border-color);
+            text-align: center; margin-bottom: 10px;
+        }
+        .network-btn {
+            padding: 8px 16px; font-size: 0.9rem; font-weight: bold; border-radius: 6px;
+            cursor: pointer; border: none; color: white; transition: all 0.2s;
+        }
+        .network-btn:active { transform: scale(0.95); }
+        .network-btn:disabled { background: #4b5563 !important; cursor: not-allowed; }
+        select {
+            padding: 8px; border-radius: 6px; border: 1px solid var(--border-color);
+            background: #0b0f19; color: white; font-size: 0.9rem; cursor: pointer; margin: 0 5px;
+        }
+        #room-input {
+            padding: 8px; border-radius: 6px; border: 1px solid var(--border-color);
+            background: #0b0f19; color: white; text-align: center; font-size: 0.9rem; width: 110px;
+        }
+        #win-tracker {
+            display: flex; justify-content: space-around; width: 100%; max-width: 800px;
+            background: var(--panel-bg); padding: 6px 15px; border-radius: 8px;
+            border: 1px solid var(--border-color); margin-bottom: 8px; font-weight: bold; font-size: 0.95rem;
+        }
+        #status-bar {
+            width: 100%; max-width: 800px; display: flex; justify-content: space-between;
+            align-items: center; padding: 8px 15px; margin-bottom: 10px;
+            background: var(--panel-bg); border-radius: 8px; border: 1px solid var(--border-color);
+        }
+        #turn-display { font-size: 1.05rem; font-weight: bold; transition: color 0.3s; }
+        .p1-text { color: #60a5fa; } .p2-text { color: #f87171; } .draft-text { color: #fbbf24; }
+
+        .grid-container {
+            display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px;
+            width: 100%; max-width: 800px; margin-bottom: 10px;
+        }
+        #draft-zone {
+            grid-template-columns: repeat(5, 1fr); background: var(--panel-bg);
+            padding: 10px; border-radius: 12px; max-height: 360px;
+            overflow-y: auto; border: 1px solid var(--border-color); gap: 8px;
+        }
+        .card {
+            width: 100%; height: 100%; aspect-ratio: 2/3;
+            background: var(--card-default); color: white; border-radius: 8px;
+            display: flex; flex-direction: column; justify-content: space-between;
+            padding: 5px; border: 1px solid rgba(255,255,255,0.15); position: relative;
+            transition: all 0.25s ease-in-out; box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .card.card-p1-owned { background: var(--p1-bg-card); border-color: #3b82f6; }
+        .card.card-p2-owned { background: var(--p2-bg-card); border-color: #ef4444; }
+
+        @keyframes slideUp { from { transform: translateY(15px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes popIn { 0% { transform: scale(0.6); opacity: 0; } 70% { transform: scale(1.05); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+        @keyframes captureBounce { 0% { transform: scale(1); } 50% { transform: scale(1.12); filter: brightness(1.4); } 100% { transform: scale(1); } }
+        @keyframes stampAnim { 0% { transform: translate(-50%, -50%) scale(2.5) rotate(-20deg); opacity: 0; } 100% { transform: translate(-50%, -50%) scale(1) rotate(-12deg); opacity: 1; } }
+        @keyframes flashError { 0%, 100% { filter: invert(0); } 25%, 75% { filter: invert(1); background: #ffffff; } 50% { filter: invert(0); background: #000000; } }
+
+        .new-placement { animation: popIn 0.35s ease-out forwards; }
+        .capture-anim { animation: captureBounce 0.45s ease-out forwards; }
+        .invalid-flash { animation: flashError 0.35s ease-in-out; }
+        .card.drafted { transform: scale(0.9); opacity: 0.65; cursor: default; }
+
+        .stamp-seal {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-12deg);
+            padding: 2px 6px; border: 2px solid currentColor; border-radius: 4px;
+            font-size: 0.75rem; font-weight: 900; animation: stampAnim 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+            pointer-events: none; z-index: 5; text-shadow: 0 0 4px rgba(0,0,0,0.8);
+        }
+
+        .num-box {
+            font-size: 0.95rem; font-weight: 800; min-width: 22px; text-align: center;
+            background: rgba(0,0,0,0.4); border-radius: 4px; padding: 1px 3px;
+        }
+        .card-row-top { display: flex; justify-content: space-between; width: 100%; }
+        .card-row-mid {
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            gap: 2px; text-align: center; font-size: 0.75rem; font-weight: 700; margin: 2px 0; word-break: break-all;
+        }
+        .total-stat-badge {
+            background: rgba(255,255,255,0.2); border: 1px solid rgba(255,255,255,0.4);
+            border-radius: 12px; padding: 1px 7px; font-size: 0.85rem; font-weight: 900;
+        }
+        .card-row-bot { display: flex; justify-content: center; width: 100%; }
+        
+        .board-slot {
+            aspect-ratio: 2/3; background: rgba(17, 24, 39, 0.6);
+            border: 2px dashed #4b5563; border-radius: 8px; position: relative;
+            cursor: pointer; padding: 0; display: flex; align-items: center;
+            justify-content: center; transition: all 0.25s; overflow: visible;
+        }
+        .board-slot.controlled-p1 { border-color: #3b82f6; background: rgba(37, 99, 235, 0.12); }
+        .board-slot.controlled-p2 { border-color: #ef4444; background: rgba(239, 68, 68, 0.12); }
+        .stack-count {
+            position: absolute; bottom: -20px; left: 0; right: 0;
+            text-align: center; font-size: 0.72rem; font-weight: 700; color: #9ca3af; transition: color 0.3s;
+        }
+        .stack-count.stack-p1 { color: #60a5fa; }
+        .stack-count.stack-p2 { color: #f87171; }
+
+        #hand-zone {
+            width: 100%; max-width: 800px; background: var(--panel-bg); border-radius: 12px;
+            padding: 10px; margin-top: 15px; min-height: 130px; border: 1px solid var(--border-color);
+        }
+        .section-title { font-size: 0.9rem; color: #9ca3af; margin-bottom: 8px; text-align: center; }
+        .hand-container { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 10px; justify-content: center; }
+        .hand-container .card { width: 68px; flex-shrink: 0; cursor: pointer; }
+        .hand-container .card:hover { transform: translateY(-4px); }
+        .hand-container .card.selected { border: 2px solid #fbbf24; transform: translateY(-8px); box-shadow: 0 6px 12px rgba(251, 191, 36, 0.3); }
+        .hidden { display: none !important; }
+        .modal {
+            position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0, 0, 0, 0.88);
+            display: flex; justify-content: center; align-items: center; z-index: 100;
+        }
+        .modal-content {
+            background: var(--panel-bg); padding: 25px; border-radius: 12px; text-align: center;
+            border: 2px solid var(--border-color); max-width: 90%; width: 340px; animation: popIn 0.35s ease-out;
+        }
+        .modal button {
+            background: linear-gradient(135deg, #10b981, #059669); color: white; border: none; padding: 10px 24px;
+            font-size: 0.95rem; font-weight: bold; border-radius: 6px; cursor: pointer; margin-top: 10px; width: 100%; transition: transform 0.2s;
+        }
+        .modal button:active { transform: scale(0.95); }
+        .lang-btn {
+            background: linear-gradient(135deg, #3b82f6, #1d4ed8) !important;
+            font-size: 1.1rem !important; margin: 8px 0 !important; padding: 12px !important;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- نافذة اختيار اللغة عند فتح اللعبة -->
+    <div id="lang-modal" class="modal">
+        <div class="modal-content">
+            <h2 style="color: #fbbf24; margin-bottom: 15px;">اختر اللغة / Select Language</h2>
+            <button class="lang-btn" onclick="setLanguage('ar')">العربية (Arabic)</button>
+            <button class="lang-btn" onclick="setLanguage('en')">English (إنجليزية)</button>
+        </div>
+    </div>
+
+    <div id="orientation-msg">قم بتدوير الهاتف للوضع الأفقي من أجل راحتك وراحتي</div>
+    <h2 id="main-title">لعبة البطاقات المشتركة</h2>
+
+    <div id="win-tracker" class="hidden">
+        <span class="p1-text" id="p1-wins-label">اللاعب 1: 0</span>
+        <span class="p2-text" id="p2-wins-label">اللاعب 2: 0</span>
+    </div>
+
+    <div id="setup-zone">
+        <h3 id="mode-title" style="margin: 0 0 10px 0; color: #fbbf24; font-size: 1.1rem;">نمط اللعب الاختياري</h3>
+        <div style="margin-bottom: 12px; display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 8px;">
+            <select id="ai-difficulty">
+                <option value="easy" id="opt-easy">مبتدئ</option>
+                <option value="medium" id="opt-med">محترف</option>
+                <option value="hard" id="opt-hard">الزول</option>
+            </select>
+            <button class="network-btn" id="ai-btn" onclick="startAIGame()" style="background: #8b5cf6;">لعب ضد المحرك/الكومبيوتر</button>
+        </div>
+        <button class="network-btn" id="local-btn" onclick="startLocalGame()" style="background: #3b82f6; margin-bottom: 8px;">لعب محلي (نفس الجهاز)</button>
+        <div id="divider-text" style="margin: 8px 0; color: #4b5563; font-size: 0.85rem;">— أو لعب عن بعد —</div>
+        <div style="display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; align-items: center;">
+            <button class="network-btn" id="host-btn" onclick="initHost()" style="background: #10b981;">إنشاء غرفة</button>
+            <div style="display: flex; gap: 5px;">
+                <input type="text" id="room-input" placeholder="رمز الغرفة" maxlength="5">
+                <button class="network-btn" id="join-btn" onclick="initJoin()" style="background: #dc2626;">انضمام</button>
+            </div>
+        </div>
+        <p id="network-status" style="margin: 10px 0 0 0; font-size: 0.85rem; color: #9ca3af; font-weight: 600;"></p>
+    </div>
+
+    <div id="status-bar" class="hidden">
+        <div id="turn-display" class="draft-text">مرحلة الاختيار: دور اللاعب 1</div>
+        <button id="copy-btn" class="network-btn hidden" onclick="copyRoomCode()" style="background: #4b5563; padding: 4px 10px; font-size: 0.78rem;">نسخ الرمز</button>
+    </div>
+
+    <div id="draft-zone" class="grid-container hidden"></div>
+
+    <div id="game-board" class="grid-container hidden" style="margin-bottom: 25px;">
+        <div class="board-slot" data-index="0"><span class="stack-count">(كدسة: 0/3)</span></div>
+        <div class="board-slot" data-index="1"><span class="stack-count">(كدسة: 0/3)</span></div>
+        <div class="board-slot" data-index="2"><span class="stack-count">(كدسة: 0/3)</span></div>
+        <div class="board-slot" data-index="3"><span class="stack-count">(كدسة: 0/3)</span></div>
+        <div class="board-slot" data-index="4"><span class="stack-count">(كدسة: 0/3)</span></div>
+        <div class="board-slot" data-index="5"><span class="stack-count">(كدسة: 0/3)</span></div>
+    </div>
+
+    <div id="hand-zone" class="hidden">
+        <div id="hand-title" class="section-title">بطاقاتك المتاحة:</div>
+        <div id="hand-container" class="hand-container"></div>
+    </div>
+
+    <div id="end-modal" class="modal hidden">
+        <div class="modal-content">
+            <h2 id="winner-text" style="font-size: 1.3rem; margin: 0 0 10px 0;"></h2>
+            <p id="rematch-countdown" style="font-size: 0.85rem; color: #fbbf24; margin: 5px 0;"></p>
+            <button id="btn-rematch" onclick="manualReset()">بدء مباراة جديدة الآن</button>
+        </div>
+    </div>
+<script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCBMvR4RfTyobzMKS8o6ZIbOHR4QTjl3wk", authDomain: "card-test-p2p.firebaseapp.com",
+      databaseURL: "https://card-test-p2p-default-rtdb.europe-west1.firebasedatabase.app",
+      projectId: "card-test-p2p", storageBucket: "card-test-p2p.firebasestorage.app",
+      messagingSenderId: "3176948046", appId: "1:3176948046:web:793ea1bc3837a966e37e1f"
+    };
+    firebase.initializeApp(firebaseConfig);
+
+    let currentLang = 'ar';
+    const translations = {
+        ar: {
+            orientMsg: "قم بتدوير الهاتف للوضع الأفقي من أجل راحتك وراحتي",
+            mainTitle: "لعبة البطاقات المشتركة",
+            modeTitle: "نمط اللعب الاختياري",
+            optEasy: "مبتدئ", optMed: "محترف", optHard: "الزول",
+            btnAI: "لعب ضد المحرك/الكومبيوتر",
+            btnLocal: "لعب محلي (نفس الجهاز)",
+            divider: "— أو لعب عن بعد —",
+            btnHost: "إنشاء غرفة",
+            roomPlaceholder: "رمز الغرفة",
+            btnJoin: "انضمام",
+            p1Label: "اللاعب 1", p2Label: "اللاعب 2", aiLabel: "المحرك",
+            copyCode: "نسخ الرمز", codeCopied: "تم النسخ!",
+            stackText: "كدسة",
+            handTitle: "بطاقاتك المتاحة:",
+            btnRematch: "بدء مباراة جديدة الآن",
+            draftPhase: "مرحلة الاختيار: دور ",
+            turn: "دور ",
+            yourTurn: " (دورك)", waitOpp: " (إنتظر الخصم)", thinking: " (يفكر...)",
+            win: "لقد فزت! 🎉", lose: "لقد خسرت! 💔",
+            p1Win: "فاز اللاعب 1 بـ ", p2Win: "فاز اللاعب 2 بـ ", slotsText: " خانات! 🎉",
+            draw: "تعادل! 🤝",
+            autoRematch: "مباراة جديدة تبدأ تلقائياً خلال ", secText: " ثوانٍ...",
+            waitingOpponent: "بانتظار الخصم...", roomNotFound: "الغرفة غير موجودة أو ممتلئة!",
+            toP1: "لـ 1", toP2: "لـ 2",
+            cards: ["قلم","حجر","رعد","برق","نار","جليد","ريح","سيف","درع","ظل","نور","فأس","رمح","صخر","موج","نجم","ليل","فجر","طيف","تنين"]
+        },
+        en: {
+            orientMsg: "Rotate phone to landscape mode for a better experience",
+            mainTitle: "Cell Capture Card Game",
+            modeTitle: "Select Game Mode",
+            optEasy: "Beginner", optMed: "Pro", optHard: "Master AI",
+            btnAI: "Play vs Computer AI",
+            btnLocal: "Local Play (Same Device)",
+            divider: "— Or Play Remotely —",
+            btnHost: "Create Room",
+            roomPlaceholder: "Room Code",
+            btnJoin: "Join Room",
+            p1Label: "Player 1", p2Label: "Player 2", aiLabel: "Computer AI",
+            copyCode: "Copy Code", codeCopied: "Copied!",
+            stackText: "Stack",
+            handTitle: "Your Available Cards:",
+            btnRematch: "Start New Game Now",
+            draftPhase: "Draft Phase: Turn of ",
+            turn: "Turn: ",
+            yourTurn: " (Your Turn)", waitOpp: " (Waiting Opponent)", thinking: " (Thinking...)",
+            win: "You Won! 🎉", lose: "You Lost! 💔",
+            p1Win: "Player 1 Won with ", p2Win: "Player 2 Won with ", slotsText: " slots! 🎉",
+            draw: "It's a Draw! 🤝",
+            autoRematch: "New match starting automatically in ", secText: " seconds...",
+            waitingOpponent: "Waiting for opponent...", roomNotFound: "Room not found or full!",
+            toP1: "To P1", toP2: "To P2",
+            cards: ["Pen","Stone","Thunder","Lightning","Fire","Ice","Wind","Sword","Shield","Shadow","Light","Axe","Spear","Rock","Wave","Star","Night","Dawn","Ghost","Dragon"]
+        }
+    };
+
+    const statsList = [ {l:7,r:3,c:5}, {l:3,r:7,c:5}, {l:4,r:4,c:7}, {l:6,r:6,c:3}, {l:8,r:2,c:4}, {l:2,r:8,c:4}, {l:5,r:5,c:6}, {l:9,r:1,c:4}, {l:1,r:9,c:4}, {l:3,r:3,c:8}, {l:5,r:8,c:2}, {l:8,r:5,c:2}, {l:6,r:4,c:5}, {l:4,r:6,c:5}, {l:7,r:5,c:3}, {l:5,r:7,c:3}, {l:2,r:2,c:10}, {l:6,r:6,c:4}, {l:4,r:5,c:6}, {l:5,r:4,c:6} ];
+    let cardDatabase = [];
+
+    function buildCardDatabase() {
+        cardDatabase = [];
+        for (let i = 0; i < 20; i++) {
+            cardDatabase.push({
+                id: i + 1,
+                name: translations[currentLang].cards[i],
+                c: statsList[i].c, l: statsList[i].l, r: statsList[i].r,
+                sum: statsList[i].l + statsList[i].r + statsList[i].c
+            });
+        }
+    }
+
+    let state = { phase: 'DRAFT', currentPlayer: 1, p1Hand: [], p2Hand: [], board: [[], [], [], [], [], []], selectedCardIndex: null, draftedIndices: [], lastAction: null };
+    let winStats = { p1: 0, p2: 0 };
+    let roomRef = null, activeRoomId = null, isMultiplayer = false, myRole = null, isAI = false, aiDifficulty = 'easy', rematchTimer = null;
+
+    const draftZone = document.getElementById('draft-zone'), gameBoard = document.getElementById('game-board'), handZone = document.getElementById('hand-zone'), handContainer = document.getElementById('hand-container'), turnDisplay = document.getElementById('turn-display'), statusOverlay = document.getElementById('network-status');
+    function setLanguage(lang) {
+        currentLang = lang;
+        document.documentElement.lang = lang;
+        document.documentElement.dir = (lang === 'ar') ? 'rtl' : 'ltr';
+        
+        const t = translations[lang];
+        document.getElementById('orientation-msg').textContent = t.orientMsg;
+        document.getElementById('main-title').textContent = t.mainTitle;
+        document.getElementById('mode-title').textContent = t.modeTitle;
+        document.getElementById('opt-easy').textContent = t.optEasy;
+        document.getElementById('opt-med').textContent = t.optMed;
+        document.getElementById('opt-hard').textContent = t.optHard;
+        document.getElementById('ai-btn').textContent = t.btnAI;
+        document.getElementById('local-btn').textContent = t.btnLocal;
+        document.getElementById('divider-text').textContent = t.divider;
+        document.getElementById('host-btn').textContent = t.btnHost;
+        document.getElementById('room-input').placeholder = t.roomPlaceholder;
+        document.getElementById('join-btn').textContent = t.btnJoin;
+        document.getElementById('copy-btn').textContent = t.copyCode;
+        document.getElementById('hand-title').textContent = t.handTitle;
+        document.getElementById('btn-rematch').textContent = t.btnRematch;
+
+        buildCardDatabase();
+        document.getElementById('lang-modal').classList.add('hidden');
+    }
+
+    function toggleButtons(disable) { document.querySelectorAll('.network-btn, select').forEach(b => b.disabled = disable); }
+
+    function flashInvalidSlot(index) {
+        const slot = document.querySelector(`.board-slot[data-index="${index}"]`);
+        if (slot) {
+            slot.classList.remove('invalid-flash');
+            void slot.offsetWidth;
+            slot.classList.add('invalid-flash');
+            setTimeout(() => slot.classList.remove('invalid-flash'), 350);
+        }
+    }
+
+    function copyRoomCode() {
+        if (!activeRoomId) return;
+        const t = translations[currentLang];
+        navigator.clipboard.writeText(activeRoomId).then(() => {
+            const btn = document.getElementById('copy-btn');
+            btn.textContent = t.codeCopied;
+            setTimeout(() => btn.textContent = t.copyCode, 1500);
+        });
+    }
+
+    function updateWinTrackerDisplay() {
+        const t = translations[currentLang];
+        document.getElementById('win-tracker').classList.remove('hidden');
+        document.getElementById('p1-wins-label').textContent = `${t.p1Label}: ${winStats.p1}`;
+        document.getElementById('p2-wins-label').textContent = isAI ? `${t.aiLabel}: ${winStats.p2}` : `${t.p2Label}: ${winStats.p2}`;
+    }
+
+    function createCardHTML(card, owner = null) {
+        const div = document.createElement('div'); div.className = 'card';
+        if (owner === 1) div.classList.add('card-p1-owned');
+        if (owner === 2) div.classList.add('card-p2-owned');
+        div.innerHTML = `<div class="card-row-top"><div class="num-box">${card.l}</div><div class="num-box">${card.r}</div></div>
+            <div class="card-row-mid"><div>${card.name}</div><div class="total-stat-badge">${card.sum}</div></div>
+            <div class="card-row-bot"><div class="num-box">${card.c}</div></div>`;
+        return div;
+    }
+
+    function startLocalGame() { startGameMode(false, false); }
+    function startAIGame() { aiDifficulty = document.getElementById('ai-difficulty').value; startGameMode(false, true); }
+    
+    function startGameMode(multi, withAI) {
+        isMultiplayer = multi; isAI = withAI;
+        document.getElementById('setup-zone').classList.add('hidden');
+        document.getElementById('status-bar').classList.remove('hidden');
+        if (isMultiplayer) document.getElementById('copy-btn').classList.remove('hidden');
+        updateWinTrackerDisplay();
+        draftZone.classList.remove('hidden'); renderDraftPool(); updateTurnDisplay();
+    }
+
+    function renderDraftPool() {
+        const t = translations[currentLang];
+        if (draftZone.innerHTML === '') {
+            cardDatabase.forEach((card, index) => {
+                const cardEl = createCardHTML(card); cardEl.dataset.index = index;
+                cardEl.style.animation = `slideUp 0.3s ease-out ${index * 0.015}s both`;
+                cardEl.onclick = () => handleDraft(index); draftZone.appendChild(cardEl);
+            });
+        }
+        cardDatabase.forEach((card, index) => {
+            const cardEl = draftZone.querySelector(`.card[data-index="${index}"]`);
+            const draftedOrder = state.draftedIndices.indexOf(index);
+            if (draftedOrder !== -1 && !cardEl.classList.contains('drafted')) {
+                cardEl.classList.add('drafted', (draftedOrder % 2 === 0) ? 'card-p1-owned' : 'card-p2-owned');
+                const stamp = document.createElement('div');
+                stamp.className = 'stamp-seal';
+                stamp.style.color = (draftedOrder % 2 === 0) ? '#60a5fa' : '#f87171';
+                stamp.textContent = (draftedOrder % 2 === 0) ? t.toP1 : t.toP2;
+                cardEl.appendChild(stamp);
+            }
+        });
+    }
+
+    function handleDraft(index) {
+        if (state.phase !== 'DRAFT' || state.draftedIndices.includes(index) || (isMultiplayer && state.currentPlayer !== myRole) || (isAI && state.currentPlayer === 2)) return;
+        executeDraft(index);
+    }
+
+    function executeDraft(index) {
+        state.draftedIndices.push(index);
+        if (state.currentPlayer === 1) { state.p1Hand.push(cardDatabase[index]); state.currentPlayer = 2; } 
+        else { state.p2Hand.push(cardDatabase[index]); state.currentPlayer = 1; }
+        if (state.p1Hand.length === 9 && state.p2Hand.length === 9) { state.phase = 'PLAY'; state.currentPlayer = 1; }
+        pushState();
+    }
+
+    function renderHand() {
+        handContainer.innerHTML = '';
+        const currentHand = isMultiplayer ? (myRole === 1 ? state.p1Hand : state.p2Hand) : (state.currentPlayer === 1 ? state.p1Hand : state.p2Hand);
+        if (!currentHand) return;
+        currentHand.forEach((card, idx) => {
+            const cardEl = createCardHTML(card, isMultiplayer ? myRole : state.currentPlayer);
+            if (state.selectedCardIndex === idx) cardEl.classList.add('selected');
+            cardEl.onclick = () => {
+                if ((isMultiplayer && state.currentPlayer !== myRole) || (isAI && state.currentPlayer === 2)) return;
+                state.selectedCardIndex = idx; renderHand();
+            };
+            handContainer.appendChild(cardEl);
+        });
+    }
+
+    function handleSlotClick(index) {
+        if (state.phase !== 'PLAY' || (isMultiplayer && state.currentPlayer !== myRole) || (isAI && state.currentPlayer === 2)) return;
+        if (state.selectedCardIndex === null || state.board[index].length >= 3) {
+            flashInvalidSlot(index);
+            return;
+        }
+        executePlay(index);
+    }
+
+    function executePlay(index) {
+        const stack = state.board[index];
+        if (stack.length >= 3) return;
+        const hand = state.currentPlayer === 1 ? state.p1Hand : state.p2Hand;
+        const placedCard = hand.splice(state.selectedCardIndex, 1)[0];
+        placedCard.owner = state.currentPlayer; let captured = [];
+        
+        if (stack.length > 0) {
+            const topCard = stack[stack.length - 1];
+            if (placedCard.c < topCard.c) placedCard.owner = topCard.owner; 
+            else stack.forEach(c => c.owner = state.currentPlayer);
+        }
+        stack.push(placedCard);
+
+        if (index > 0 && state.board[index - 1].length > 0) {
+            const lStack = state.board[index - 1];
+            if (placedCard.l >= lStack[lStack.length - 1].r) { lStack.forEach(c => c.owner = placedCard.owner); captured.push(index - 1); }
+        }
+        if (index < 5 && state.board[index + 1].length > 0) {
+            const rStack = state.board[index + 1];
+            if (placedCard.r >= rStack[rStack.length - 1].l) { rStack.forEach(c => c.owner = placedCard.owner); captured.push(index + 1); }
+        }
+
+        state.selectedCardIndex = null; state.lastAction = { slot: index, captured: captured };
+        if (state.p1Hand.length === 0 && state.p2Hand.length === 0) endGame(); 
+        else state.currentPlayer = state.currentPlayer === 1 ? 2 : 1;
+        pushState();
+    }
+
+    function renderBoard() {
+        const t = translations[currentLang];
+        const action = state.lastAction || { slot: -1, captured: [] };
+        state.board.forEach((stack, index) => {
+            const slot = document.querySelector(`.board-slot[data-index="${index}"]`);
+            const stackLabel = slot.querySelector('.stack-count');
+            stackLabel.textContent = `(${t.stackText}: ${stack.length}/3)`;
+            
+            const oldCardDOM = slot.querySelector('.card');
+            if (stack.length > 0) {
+                const topCard = stack[stack.length - 1];
+                stackLabel.className = `stack-count ${topCard.owner === 1 ? 'stack-p1' : 'stack-p2'}`;
+                
+                if (!oldCardDOM || oldCardDOM.dataset.uid !== `${topCard.id}-${stack.length}`) {
+                    if (oldCardDOM) oldCardDOM.remove();
+                    const cardDOM = createCardHTML(topCard, topCard.owner); 
+                    cardDOM.dataset.uid = `${topCard.id}-${stack.length}`;
+                    if (index === action.slot) cardDOM.classList.add('new-placement');
+                    slot.appendChild(cardDOM);
+                } else {
+                    oldCardDOM.className = 'card';
+                    oldCardDOM.classList.add(topCard.owner === 1 ? 'card-p1-owned' : 'card-p2-owned');
+                }
+                if (action.captured.includes(index) && slot.querySelector('.card')) {
+                    const c = slot.querySelector('.card');
+                    c.classList.remove('capture-anim'); void c.offsetWidth; c.classList.add('capture-anim');
+                }
+                slot.className = `board-slot ${topCard.owner === 1 ? 'controlled-p1' : 'controlled-p2'}`;
+            } else {
+                if (oldCardDOM) oldCardDOM.remove();
+                stackLabel.className = 'stack-count';
+                slot.className = 'board-slot';
+            }
+        });
+        if (state.lastAction) state.lastAction = null;
+    }
+
+    function checkAITurn() { if (isAI && state.currentPlayer === 2) setTimeout(playAI, 600); }
+    
+    function playAI() {
+        if (state.phase === 'DRAFT') {
+            const available = cardDatabase.map((c, i) => i).filter(i => !state.draftedIndices.includes(i));
+            let chosen = available[0];
+            if (aiDifficulty === 'easy') chosen = available[Math.floor(Math.random() * available.length)];
+            else if (aiDifficulty === 'medium') {
+                available.sort((a,b) => cardDatabase[b].sum - cardDatabase[a].sum);
+                chosen = available[0];
+            } else if (aiDifficulty === 'hard') {
+                available.sort((a,b) => (cardDatabase[b].sum + cardDatabase[b].c) - (cardDatabase[a].sum + cardDatabase[a].c));
+                chosen = available[0];
+            }
+            executeDraft(chosen);
+        } else if (state.phase === 'PLAY') {
+            const hand = state.p2Hand; if(!hand || hand.length === 0) return;
+            let validSlots = state.board.map((s, i) => i).filter(i => state.board[i].length < 3); 
+            if (validSlots.length === 0) return;
+            
+            let bestMove = { cardIdx: 0, slotIdx: validSlots[0], score: -9999 };
+            if (aiDifficulty === 'easy') {
+                bestMove.cardIdx = Math.floor(Math.random() * hand.length);
+                bestMove.slotIdx = validSlots[Math.floor(Math.random() * validSlots.length)];
+            } else {
+                for (let cIdx = 0; cIdx < hand.length; cIdx++) {
+                    for (let sIdx of validSlots) {
+                        let score = evaluateMoveEngine(cIdx, sIdx, aiDifficulty);
+                        if (score > bestMove.score) { bestMove.score = score; bestMove.cardIdx = cIdx; bestMove.slotIdx = sIdx; }
+                    }
+                }
+            }
+            state.selectedCardIndex = bestMove.cardIdx; executePlay(bestMove.slotIdx);
+        }
+    }
+
+    function evaluateMoveEngine(cIdx, sIdx, diff) {
+        const card = state.p2Hand[cIdx];
+        const stack = state.board[sIdx];
+        let score = 0;
+        
+        if (stack.length > 0) {
+            const top = stack[stack.length - 1];
+            if (card.c >= top.c) score += (top.owner === 1 ? 35 : 15);
+            else score -= 25;
+        } else { score += card.c * 2; }
+
+        if (sIdx > 0 && state.board[sIdx - 1].length > 0) {
+            const leftTop = state.board[sIdx - 1][state.board[sIdx - 1].length - 1];
+            if (card.l >= leftTop.r && leftTop.owner === 1) score += 30;
+        }
+        if (sIdx < 5 && state.board[sIdx + 1].length > 0) {
+            const rightTop = state.board[sIdx + 1][state.board[sIdx + 1].length - 1];
+            if (card.r >= rightTop.l && rightTop.owner === 1) score += 30;
+        }
+
+        if (diff === 'hard') {
+            let opponentCounterRisk = 0;
+            state.p1Hand.forEach(p1Card => {
+                if (p1Card.c > card.c) opponentCounterRisk += 8;
+                if (sIdx > 0 && p1Card.r > card.l) opponentCounterRisk += 6;
+                if (sIdx < 5 && p1Card.l > card.r) opponentCounterRisk += 6;
+            });
+            score -= (opponentCounterRisk * 0.5);
+        }
+        return score;
+    }
+    function initHost() {
+        const t = translations[currentLang];
+        toggleButtons(true); activeRoomId = Math.random().toString(36).substring(2, 7).toUpperCase();
+        myRole = 1; roomRef = firebase.database().ref('rooms/' + activeRoomId);
+        sessionStorage.setItem('card_room', activeRoomId); sessionStorage.setItem('card_role', '1');
+        
+        roomRef.set({ stateStr: JSON.stringify(state), p2Joined: false });
+        statusOverlay.innerHTML = `${t.roomPlaceholder}: <strong style="color:#fbbf24; font-size:1.1rem;">${activeRoomId}</strong> - ${t.waitingOpponent}`;
+        
+        roomRef.on('value', snapshot => {
+            const data = snapshot.val();
+            if (data) {
+                if (data.p2Joined && !isMultiplayer) startGameMode(true, false);
+                if (data.stateStr) syncState(JSON.parse(data.stateStr));
+            }
+        });
+    }
+
+    function initJoin() {
+        const t = translations[currentLang];
+        const targetId = document.getElementById('room-input').value.trim().toUpperCase(); if(!targetId) return;
+        toggleButtons(true); myRole = 2; activeRoomId = targetId;
+        sessionStorage.setItem('card_room', activeRoomId); sessionStorage.setItem('card_role', '2');
+        
+        roomRef = firebase.database().ref('rooms/' + activeRoomId);
+        roomRef.once('value').then(snapshot => {
+            if (snapshot.exists() && !snapshot.val().p2Joined) {
+                roomRef.update({ p2Joined: true }); startGameMode(true, false);
+                roomRef.on('value', snap => { const data = snap.val(); if (data && data.stateStr) syncState(JSON.parse(data.stateStr)); });
+            } else { statusOverlay.textContent = t.roomNotFound; toggleButtons(false); }
+        });
+    }
+
+    function syncState(newState) {
+        state = newState;
+        if (state.phase === 'DRAFT') { renderDraftPool(); } 
+        else { draftZone.classList.add('hidden'); gameBoard.classList.remove('hidden'); handZone.classList.remove('hidden'); renderBoard(); renderHand(); }
+        updateTurnDisplay(); checkAITurn();
+    }
+
+    function pushState() { isMultiplayer && roomRef ? roomRef.update({ stateStr: JSON.stringify(state) }) : syncState(state); }
+
+    function updateTurnDisplay() {
+        const t = translations[currentLang];
+        let hint = ""; 
+        if (isMultiplayer) hint = (state.currentPlayer === myRole) ? t.yourTurn : t.waitOpp;
+        else if (isAI && state.currentPlayer === 2) hint = t.thinking;
+        
+        const playerText = (state.currentPlayer === 1) ? t.p1Label : (isAI ? t.aiLabel : t.p2Label);
+        
+        if (state.phase === 'DRAFT') {
+            turnDisplay.textContent = t.draftPhase + playerText + hint;
+        } else {
+            turnDisplay.textContent = t.turn + playerText + hint;
+        }
+        turnDisplay.className = state.currentPlayer === 1 ? "p1-text" : "p2-text";
+    }
+
+    function endGame() {
+        const t = translations[currentLang];
+        let p1Score = 0, p2Score = 0;
+        state.board.forEach(stack => {
+            if (stack.length > 0) {
+                if (stack[stack.length - 1].owner === 1) p1Score++; else p2Score++;
+            }
+        });
+
+        let winnerText = "";
+        if (p1Score > p2Score) {
+            winStats.p1++;
+            if (isMultiplayer) winnerText = (myRole === 1) ? t.win : t.lose;
+            else if (isAI) winnerText = t.win;
+            else winnerText = `${t.p1Win}${p1Score}${t.slotsText}`;
+        } else if (p2Score > p1Score) {
+            winStats.p2++;
+            if (isMultiplayer) winnerText = (myRole === 2) ? t.win : t.lose;
+            else if (isAI) winnerText = t.lose;
+            else winnerText = `${t.p2Win}${p2Score}${t.slotsText}`;
+        } else { winnerText = t.draw; }
+
+        updateWinTrackerDisplay();
+        document.getElementById('winner-text').textContent = winnerText;
+        document.getElementById('end-modal').classList.remove('hidden');
+
+        let seconds = 5;
+        const countdownEl = document.getElementById('rematch-countdown');
+        countdownEl.textContent = `${t.autoRematch}${seconds}${t.secText}`;
+        
+        clearInterval(rematchTimer);
+        rematchTimer = setInterval(() => {
+            seconds--;
+            if (seconds > 0) { countdownEl.textContent = `${t.autoRematch}${seconds}${t.secText}`; } 
+            else { clearInterval(rematchTimer); autoStartNextMatch(); }
+        }, 1000);
+    }
+
+    function autoStartNextMatch() {
+        document.getElementById('end-modal').classList.add('hidden');
+        state = { phase: 'DRAFT', currentPlayer: 1, p1Hand: [], p2Hand: [], board: [[], [], [], [], [], []], selectedCardIndex: null, draftedIndices: [], lastAction: null };
+        draftZone.innerHTML = ''; gameBoard.classList.add('hidden'); handZone.classList.add('hidden'); draftZone.classList.remove('hidden');
+        pushState();
+    }
+
+    function manualReset() { clearInterval(rematchTimer); autoStartNextMatch(); }
+
+    document.querySelectorAll('.board-slot').forEach((slot, idx) => {
+        slot.onclick = () => { if(!isAI || state.currentPlayer === 1) handleSlotClick(idx); };
+    });
+</script>
+</body>
+</html>
+
